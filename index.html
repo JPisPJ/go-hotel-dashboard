@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GO Hotel — Daily Portfolio Report</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        go: { red: '#C8102E', darkred: '#9B0A1E', lightred: '#FDE8EC', white: '#FFFFFF' }
+      },
+      fontFamily: { sans: ['Inter', 'sans-serif'] }
+    }
+  }
+}
+</script>
+<style>
+  body { font-family: 'Inter', sans-serif; background: #F3F4F6; }
+  .tab-active { background: #C8102E; color: white; }
+  .tab-inactive { background: white; color: #374151; border: 1px solid #D1D5DB; }
+  .cluster-active { background: #C8102E; color: white; }
+  .cluster-inactive { background: white; color: #6B7280; border: 1px solid #E5E7EB; }
+  .pace-bar { height: 8px; border-radius: 4px; background: #E5E7EB; overflow: hidden; }
+  .pace-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+  .flag-best { background: #D1FAE5; color: #065F46; }
+  .flag-worst { background: #FEE2E2; color: #991B1B; }
+  .metric-up { color: #059669; }
+  .metric-down { color: #DC2626; }
+  @media print { body { background: white; } }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Header -->
+<header class="bg-go-red text-white shadow-lg">
+  <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="bg-white text-go-red font-extrabold text-xl px-3 py-1 rounded">GO</div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight">GO Hotel — Daily Portfolio Report</h1>
+        <p class="text-red-200 text-sm">by Central Pattana LifeXO</p>
+      </div>
+    </div>
+    <div class="text-right">
+      <div class="text-sm text-red-200">Report Date</div>
+      <div id="reportDate" class="text-lg font-semibold"></div>
+    </div>
+  </div>
+</header>
+
+<!-- Controls -->
+<div class="max-w-7xl mx-auto px-4 pt-5 pb-2 flex flex-wrap gap-3 items-center justify-between">
+  <!-- Period Tabs -->
+  <div class="flex gap-2" id="periodTabs">
+    <button onclick="setPeriod('yesterday')" data-period="yesterday" class="px-4 py-2 rounded-lg text-sm font-medium transition tab-active">Yesterday</button>
+    <button onclick="setPeriod('mtd')" data-period="mtd" class="px-4 py-2 rounded-lg text-sm font-medium transition tab-inactive">MTD</button>
+    <button onclick="setPeriod('ytd')" data-period="ytd" class="px-4 py-2 rounded-lg text-sm font-medium transition tab-inactive">YTD</button>
+  </div>
+  <!-- Cluster Filter -->
+  <div class="flex gap-2" id="clusterTabs">
+    <button onclick="setCluster('all')" data-cluster="all" class="px-3 py-1.5 rounded-full text-xs font-medium transition cluster-active">All Hotels</button>
+    <button onclick="setCluster('airport')" data-cluster="airport" class="px-3 py-1.5 rounded-full text-xs font-medium transition cluster-inactive">Airport</button>
+    <button onclick="setCluster('eec')" data-cluster="eec" class="px-3 py-1.5 rounded-full text-xs font-medium transition cluster-inactive">EEC</button>
+    <button onclick="setCluster('upcountry')" data-cluster="upcountry" class="px-3 py-1.5 rounded-full text-xs font-medium transition cluster-inactive">Upcountry</button>
+  </div>
+</div>
+
+<!-- Portfolio Summary KPIs -->
+<div class="max-w-7xl mx-auto px-4 py-3">
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="summaryKPIs"></div>
+</div>
+
+<!-- Best / Worst Flags -->
+<div class="max-w-7xl mx-auto px-4 py-2">
+  <div class="flex flex-wrap gap-3" id="flags"></div>
+</div>
+
+<!-- Branch Cards -->
+<div class="max-w-7xl mx-auto px-4 py-4">
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" id="branchCards"></div>
+</div>
+
+<!-- MTD Pace Chart -->
+<div class="max-w-7xl mx-auto px-4 py-4">
+  <div class="bg-white rounded-xl shadow p-5">
+    <h2 class="text-lg font-bold text-gray-800 mb-4">MTD Occupancy Pace by Branch</h2>
+    <canvas id="paceChart" height="100"></canvas>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="text-center text-xs text-gray-400 py-6">
+  GO Hotel by Central Pattana LifeXO &middot; Data refreshed daily &middot; Dummy data for demo
+</footer>
+
+<script>
+// ─── Dummy Data ──────────────────────────────────────────────
+const BRANCHES = [
+  { id: 'bkk', name: 'กรุงเทพ สุวรรณภูมิแอร์พอร์ต', short: 'BKK Airport', cluster: 'airport', rooms: 180 },
+  { id: 'bowin', name: 'บ่อวิน', short: 'Bo Win', cluster: 'eec', rooms: 120 },
+  { id: 'banchang', name: 'บ้านฉาง', short: 'Ban Chang', cluster: 'eec', rooms: 100 },
+  { id: 'sriracha', name: 'ศรีราชา', short: 'Sriracha', cluster: 'eec', rooms: 130 },
+  { id: 'chonburi', name: 'ชลบุรี', short: 'Chonburi', cluster: 'eec', rooms: 110 },
+  { id: 'khonkaen', name: 'ขอนแก่น แคมปัส', short: 'Khon Kaen', cluster: 'upcountry', rooms: 140 },
+  { id: 'nakhonsawan', name: 'นครสวรรค์', short: 'Nakhon Sawan', cluster: 'upcountry', rooms: 90 },
+];
+
+function rand(min, max) { return Math.round((Math.random() * (max - min) + min) * 100) / 100; }
+
+function genMetrics(rooms) {
+  const occ = rand(55, 92);
+  const adr = rand(800, 1800);
+  const revpar = Math.round(occ / 100 * adr);
+  const revenue = Math.round(revpar * rooms);
+  const occBud = occ + rand(-8, 8);
+  const adrBud = adr + rand(-200, 200);
+  const revparBud = Math.round(occBud / 100 * adrBud);
+  const revenueBud = Math.round(revparBud * rooms);
+  const occLY = occ + rand(-10, 10);
+  const adrLY = adr + rand(-150, 150);
+  const revparLY = Math.round(occLY / 100 * adrLY);
+  const revenueLY = Math.round(revparLY * rooms);
+  return {
+    occ, adr, revpar, revenue,
+    occBud, adrBud, revparBud, revenueBud,
+    occLY, adrLY, revparLY, revenueLY,
+    mtdPace: rand(40, 98),
+  };
+}
+
+// Pre-generate data for all periods
+const DATA = {};
+['yesterday', 'mtd', 'ytd'].forEach(period => {
+  DATA[period] = {};
+  BRANCHES.forEach(b => {
+    const mult = period === 'mtd' ? 30 : period === 'ytd' ? 90 : 1;
+    const m = genMetrics(b.rooms);
+    if (period !== 'yesterday') {
+      m.revenue *= mult;
+      m.revenueBud *= mult;
+      m.revenueLY *= mult;
+    }
+    DATA[period][b.id] = m;
+  });
+});
+
+let currentPeriod = 'yesterday';
+let currentCluster = 'all';
+
+// ─── Render ──────────────────────────────────────────────────
+function setPeriod(p) {
+  currentPeriod = p;
+  document.querySelectorAll('#periodTabs button').forEach(btn => {
+    btn.className = btn.dataset.period === p
+      ? 'px-4 py-2 rounded-lg text-sm font-medium transition tab-active'
+      : 'px-4 py-2 rounded-lg text-sm font-medium transition tab-inactive';
+  });
+  render();
+}
+
+function setCluster(c) {
+  currentCluster = c;
+  document.querySelectorAll('#clusterTabs button').forEach(btn => {
+    btn.className = btn.dataset.cluster === c
+      ? 'px-3 py-1.5 rounded-full text-xs font-medium transition cluster-active'
+      : 'px-3 py-1.5 rounded-full text-xs font-medium transition cluster-inactive';
+  });
+  render();
+}
+
+function filteredBranches() {
+  if (currentCluster === 'all') return BRANCHES;
+  return BRANCHES.filter(b => b.cluster === currentCluster);
+}
+
+function fmtNum(n) { return n.toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+function fmtPct(n) { return n.toFixed(1) + '%'; }
+function fmtMoney(n) { return '฿' + fmtNum(n); }
+function varPct(actual, compare) {
+  if (!compare) return 0;
+  return ((actual - compare) / compare * 100);
+}
+function varBadge(actual, compare, suffix = '') {
+  const v = varPct(actual, compare);
+  const cls = v >= 0 ? 'metric-up' : 'metric-down';
+  const arrow = v >= 0 ? '&#9650;' : '&#9660;';
+  return `<span class="${cls} text-xs font-semibold">${arrow} ${Math.abs(v).toFixed(1)}%${suffix}</span>`;
+}
+
+function renderSummaryKPIs() {
+  const branches = filteredBranches();
+  const data = branches.map(b => DATA[currentPeriod][b.id]);
+  const totalRooms = branches.reduce((s, b) => s + b.rooms, 0);
+
+  const avgOcc = data.reduce((s, d) => s + d.occ, 0) / data.length;
+  const avgAdr = data.reduce((s, d) => s + d.adr, 0) / data.length;
+  const avgRevpar = data.reduce((s, d) => s + d.revpar, 0) / data.length;
+  const totalRev = data.reduce((s, d) => s + d.revenue, 0);
+
+  const avgOccBud = data.reduce((s, d) => s + d.occBud, 0) / data.length;
+  const avgAdrBud = data.reduce((s, d) => s + d.adrBud, 0) / data.length;
+  const avgRevparBud = data.reduce((s, d) => s + d.revparBud, 0) / data.length;
+  const totalRevBud = data.reduce((s, d) => s + d.revenueBud, 0);
+
+  const kpis = [
+    { label: 'Avg Occupancy', value: fmtPct(avgOcc), vs: varBadge(avgOcc, avgOccBud, ' vs BUD') },
+    { label: 'Avg ADR', value: fmtMoney(avgAdr), vs: varBadge(avgAdr, avgAdrBud, ' vs BUD') },
+    { label: 'Avg RevPAR', value: fmtMoney(avgRevpar), vs: varBadge(avgRevpar, avgRevparBud, ' vs BUD') },
+    { label: 'Total Room Revenue', value: fmtMoney(totalRev), vs: varBadge(totalRev, totalRevBud, ' vs BUD') },
+  ];
+
+  document.getElementById('summaryKPIs').innerHTML = kpis.map(k => `
+    <div class="bg-white rounded-xl shadow p-4">
+      <div class="text-xs text-gray-500 font-medium uppercase tracking-wide">${k.label}</div>
+      <div class="text-2xl font-bold text-gray-900 mt-1">${k.value}</div>
+      <div class="mt-1">${k.vs}</div>
+    </div>
+  `).join('');
+}
+
+function renderFlags() {
+  const branches = filteredBranches();
+  let bestOcc = { val: -1 }, worstOcc = { val: 999 };
+  let bestRev = { val: -1 }, worstRev = { val: Infinity };
+
+  branches.forEach(b => {
+    const d = DATA[currentPeriod][b.id];
+    if (d.occ > bestOcc.val) bestOcc = { val: d.occ, name: b.short };
+    if (d.occ < worstOcc.val) worstOcc = { val: d.occ, name: b.short };
+    if (d.revenue > bestRev.val) bestRev = { val: d.revenue, name: b.short };
+    if (d.revenue < worstRev.val) worstRev = { val: d.revenue, name: b.short };
+  });
+
+  document.getElementById('flags').innerHTML = `
+    <div class="flag-best px-3 py-1.5 rounded-lg text-xs font-semibold">&#9733; Best OCC: ${bestOcc.name} (${fmtPct(bestOcc.val)})</div>
+    <div class="flag-best px-3 py-1.5 rounded-lg text-xs font-semibold">&#9733; Top Revenue: ${bestRev.name} (${fmtMoney(bestRev.val)})</div>
+    <div class="flag-worst px-3 py-1.5 rounded-lg text-xs font-semibold">&#9888; Lowest OCC: ${worstOcc.name} (${fmtPct(worstOcc.val)})</div>
+    <div class="flag-worst px-3 py-1.5 rounded-lg text-xs font-semibold">&#9888; Lowest Revenue: ${worstRev.name} (${fmtMoney(worstRev.val)})</div>
+  `;
+}
+
+function renderBranchCards() {
+  const branches = filteredBranches();
+  document.getElementById('branchCards').innerHTML = branches.map(b => {
+    const d = DATA[currentPeriod][b.id];
+    const clusterLabel = b.cluster === 'airport' ? 'Airport' : b.cluster === 'eec' ? 'EEC' : 'Upcountry';
+    const clusterColor = b.cluster === 'airport' ? 'bg-blue-100 text-blue-700' : b.cluster === 'eec' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700';
+
+    return `
+    <div class="bg-white rounded-xl shadow hover:shadow-md transition p-5">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <h3 class="font-bold text-gray-900">${b.name}</h3>
+          <p class="text-xs text-gray-400">${b.rooms} rooms</p>
+        </div>
+        <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full ${clusterColor}">${clusterLabel}</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Occupancy</div>
+          <div class="text-lg font-bold">${fmtPct(d.occ)}</div>
+          <div class="flex gap-2">${varBadge(d.occ, d.occBud, ' BUD')} ${varBadge(d.occ, d.occLY, ' LY')}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">ADR</div>
+          <div class="text-lg font-bold">${fmtMoney(d.adr)}</div>
+          <div class="flex gap-2">${varBadge(d.adr, d.adrBud, ' BUD')} ${varBadge(d.adr, d.adrLY, ' LY')}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">RevPAR</div>
+          <div class="text-lg font-bold">${fmtMoney(d.revpar)}</div>
+          <div class="flex gap-2">${varBadge(d.revpar, d.revparBud, ' BUD')} ${varBadge(d.revpar, d.revparLY, ' LY')}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Room Revenue</div>
+          <div class="text-lg font-bold">${fmtMoney(d.revenue)}</div>
+          <div class="flex gap-2">${varBadge(d.revenue, d.revenueBud, ' BUD')} ${varBadge(d.revenue, d.revenueLY, ' LY')}</div>
+        </div>
+      </div>
+
+      <!-- MTD Pace Bar -->
+      <div>
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-[10px] text-gray-400 uppercase">MTD Pace</span>
+          <span class="text-xs font-semibold text-gray-700">${fmtPct(d.mtdPace)}</span>
+        </div>
+        <div class="pace-bar">
+          <div class="pace-fill" style="width:${Math.min(d.mtdPace, 100)}%; background: ${d.mtdPace >= 80 ? '#059669' : d.mtdPace >= 60 ? '#D97706' : '#DC2626'}"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+let paceChartInstance = null;
+function renderPaceChart() {
+  const branches = filteredBranches();
+  const labels = branches.map(b => b.short);
+  const paceData = branches.map(b => DATA[currentPeriod][b.id].mtdPace);
+  const colors = paceData.map(v => v >= 80 ? '#059669' : v >= 60 ? '#D97706' : '#DC2626');
+
+  if (paceChartInstance) paceChartInstance.destroy();
+
+  paceChartInstance = new Chart(document.getElementById('paceChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'MTD Pace %',
+        data: paceData,
+        backgroundColor: colors,
+        borderRadius: 6,
+        maxBarThickness: 60,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '%' } }
+      },
+      scales: {
+        y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function render() {
+  renderSummaryKPIs();
+  renderFlags();
+  renderBranchCards();
+  renderPaceChart();
+}
+
+// ─── Init ────────────────────────────────────────────────────
+const today = new Date();
+const yesterday = new Date(today);
+yesterday.setDate(yesterday.getDate() - 1);
+document.getElementById('reportDate').textContent = yesterday.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+render();
+</script>
+</body>
+</html>
